@@ -151,6 +151,9 @@ curl -X POST http://localhost:8080/api/analyze \
 }'
 ```
 
+<img width="958" alt="截圖 2025-01-03 15 29 59" src="https://github.com/user-attachments/assets/6f7d67af-6e74-41b2-a32e-c443ebdeb324" />
+
+
 ## Features
 
 - concurrent processing of commits using goroutines
