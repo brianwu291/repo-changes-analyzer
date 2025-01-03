@@ -8,6 +8,7 @@ A service that analyzes GitHub repository changes, providing insights into code 
 .
 ├── LICENSE
 ├── development-container
+│   ├── docker-compose.yml
 │   └── Dockerfile
 ├── config
 │   └── config.go
