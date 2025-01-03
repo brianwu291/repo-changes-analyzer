@@ -8,9 +8,12 @@ type RepoAnalysisRequest struct {
 }
 
 type UserChanges struct {
-	Additions int `json:"additions"`
-	Deletions int `json:"deletions"`
-	Total     int `json:"total"`
+	Username    string `json:"username"`
+	Additions   int    `json:"additions"`
+	Deletions   int    `json:"deletions"`
+	Total       int    `json:"total"`
+	CommitCount int    `json:"commit_count"`
+	AvatarURL   string `json:"avatar_url,omitempty"`
 }
 
 type AnalysisResponse struct {
@@ -21,7 +24,9 @@ type AnalysisResponse struct {
 }
 
 type CommitAnalysis struct {
-	Author    string
-	Additions int
-	Deletions int
+	Author      string
+	Additions   int
+	Deletions   int
+	CommitCount int
+	AvatarURL   string
 }

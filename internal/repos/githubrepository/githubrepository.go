@@ -12,6 +12,7 @@ import (
 )
 
 type GithubRepository interface {
+	GetContributors(ctx context.Context, owner, repo string) ([]*github.Contributor, error)
 	GetCommits(ctx context.Context, owner, repo string, startDate, endDate time.Time) ([]*github.RepositoryCommit, error)
 	ProcessCommitsConcurrently(ctx context.Context, owner, repo string, commits []*github.RepositoryCommit) map[string]model.UserChanges
 }
@@ -24,6 +25,28 @@ func NewGithubRepository(client *github.Client) GithubRepository {
 	return &githubRepository{
 		client: client,
 	}
+}
+
+func (r *githubRepository) GetContributors(ctx context.Context, owner, repo string) ([]*github.Contributor, error) {
+	opts := &github.ListContributorsOptions{
+		ListOptions: github.ListOptions{
+			PerPage: 100,
+		},
+	}
+
+	var allContributors []*github.Contributor
+	for {
+		contributors, resp, err := r.client.Repositories.ListContributors(ctx, owner, repo, opts)
+		if err != nil {
+			return nil, err
+		}
+		allContributors = append(allContributors, contributors...)
+		if resp.NextPage == 0 {
+			break
+		}
+		opts.Page = resp.NextPage
+	}
+	return allContributors, nil
 }
 
 func (r *githubRepository) GetCommits(ctx context.Context, owner, repo string, startDate, endDate time.Time) ([]*github.RepositoryCommit, error) {
@@ -53,7 +76,7 @@ func (r *githubRepository) GetCommits(ctx context.Context, owner, repo string, s
 func (r *githubRepository) ProcessCommitsConcurrently(ctx context.Context, owner, repo string, commits []*github.RepositoryCommit) map[string]model.UserChanges {
 	var wg sync.WaitGroup
 	workerSize := 5
-	buffer := min(len(commits), workerSize * 5)
+	buffer := min(len(commits), workerSize*5)
 	userChangesChan := make(chan model.CommitAnalysis, buffer)
 
 	workerPool := make(chan struct{}, workerSize) // limit concurrent api requests

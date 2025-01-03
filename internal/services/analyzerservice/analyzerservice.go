@@ -2,6 +2,7 @@ package analyzerservice
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	model "github.com/brianwu291/repo-changes-analyzer/internal/models"
@@ -30,19 +31,47 @@ func NewAnalyzerService(repo repos.GithubRepository) AnalyzerService {
 }
 
 func (s *analyzerService) AnalyzeRepository(ctx context.Context, params AnalysisParams) (map[string]model.UserChanges, error) {
-	commits, err := s.repo.GetCommits(ctx, params.Owner, params.Repo, params.StartDate, params.EndDate)
+	// get all contributors
+	contributors, err := s.repo.GetContributors(ctx, params.Owner, params.Repo)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to get contributors: %w", err)
 	}
 
-	results := s.repo.ProcessCommitsConcurrently(ctx, params.Owner, params.Repo, commits)
-
+	// user changes map with contributor info
 	userChanges := make(map[string]model.UserChanges)
-	for user, changes := range results {
-		userChanges[user] = model.UserChanges{
-			Additions: changes.Additions,
-			Deletions: changes.Deletions,
-			Total:     changes.Additions + changes.Deletions,
+	for _, contributor := range contributors {
+		if contributor.GetLogin() != "" {
+			userChanges[contributor.GetLogin()] = model.UserChanges{
+				Username:    contributor.GetLogin(),
+				AvatarURL:   contributor.GetAvatarURL(),
+				CommitCount: 0,
+			}
+		}
+	}
+
+	// get commits in date range
+	commits, err := s.repo.GetCommits(ctx, params.Owner, params.Repo, params.StartDate, params.EndDate)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get commits: %w", err)
+	}
+
+	// process commits and update statistics
+	commitStats := s.repo.ProcessCommitsConcurrently(ctx, params.Owner, params.Repo, commits)
+
+	// merge commit statistics
+	for username, stats := range commitStats {
+		if user, exists := userChanges[username]; exists {
+			user.Additions = stats.Additions
+			user.Deletions = stats.Deletions
+			user.Total = stats.Total
+			userChanges[username] = user
+		} else {
+			userChanges[username] = model.UserChanges{
+				Username:  username,
+				Additions: stats.Additions,
+				Deletions: stats.Deletions,
+				Total:     stats.Total,
+			}
 		}
 	}
 
