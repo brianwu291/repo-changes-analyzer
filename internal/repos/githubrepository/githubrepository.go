@@ -14,7 +14,7 @@ import (
 type GithubRepository interface {
 	GetContributors(ctx context.Context, owner, repo string) ([]*github.Contributor, error)
 	GetCommits(ctx context.Context, owner, repo string, startDate, endDate time.Time) ([]*github.RepositoryCommit, error)
-	ProcessCommitsConcurrently(ctx context.Context, owner, repo string, commits []*github.RepositoryCommit) map[string]model.UserChanges
+	ProcessCommitsConcurrently(ctx context.Context, owner, repo string, commits []*github.RepositoryCommit) (map[string]model.UserChanges, []error)
 }
 
 type githubRepository struct {
@@ -27,7 +27,7 @@ func NewGithubRepository(client *github.Client) GithubRepository {
 	}
 }
 
-func (r *githubRepository) GetContributors(ctx context.Context, owner, repo string) ([]*github.Contributor, error) {
+func (r *githubRepository) GetContributors(ctx context.Context, owner string, repo string) ([]*github.Contributor, error) {
 	opts := &github.ListContributorsOptions{
 		ListOptions: github.ListOptions{
 			PerPage: 100,
@@ -49,7 +49,7 @@ func (r *githubRepository) GetContributors(ctx context.Context, owner, repo stri
 	return allContributors, nil
 }
 
-func (r *githubRepository) GetCommits(ctx context.Context, owner, repo string, startDate, endDate time.Time) ([]*github.RepositoryCommit, error) {
+func (r *githubRepository) GetCommits(ctx context.Context, owner string, repo string, startDate time.Time, endDate time.Time) ([]*github.RepositoryCommit, error) {
 	opts := &github.CommitsListOptions{
 		Since: startDate,
 		Until: endDate,
@@ -73,66 +73,83 @@ func (r *githubRepository) GetCommits(ctx context.Context, owner, repo string, s
 	return allCommits, nil
 }
 
-func (r *githubRepository) ProcessCommitsConcurrently(ctx context.Context, owner, repo string, commits []*github.RepositoryCommit) map[string]model.UserChanges {
-	var wg sync.WaitGroup
+func (r *githubRepository) ProcessCommitsConcurrently(ctx context.Context, owner string, repo string, commits []*github.RepositoryCommit) (map[string]model.UserChanges, []error) {
+	commitsChan := make(chan *github.RepositoryCommit, len(commits))
+	userCommitAnalysisChan := make(chan *model.CommitAnalysis, len(commits))
+	errorsChan := make(chan *error, len(commits))
+	var errors []error
+	userChangesMap := make(map[string]model.UserChanges)
+
 	workerSize := 5
-	buffer := min(len(commits), workerSize*5)
-	userChangesChan := make(chan model.CommitAnalysis, buffer)
-
-	workerPool := make(chan struct{}, workerSize)
-
-	// init commit count map
-	commitCounts := make(map[string]int)
-	for _, commit := range commits {
-		if commit.Author != nil && commit.Author.Login != nil {
-			commitCounts[*commit.Author.Login] += 1
-		}
-	}
-
-	for _, commit := range commits {
-		if commit.Author == nil || commit.Author.Login == nil {
-			continue
-		}
-
+	var wg sync.WaitGroup
+	for i := 0; i < workerSize; i += 1 {
 		wg.Add(1)
-		go func(commit *github.RepositoryCommit) {
+		go func() {
 			defer wg.Done()
-			workerPool <- struct{}{}
-			defer func() { <-workerPool }()
-
-			commitDetail, _, err := r.client.Repositories.GetCommit(ctx, owner, repo, commit.GetSHA(), nil)
-			if err != nil {
-				log.Printf("error getting commit detail for %s: %v", commit.GetSHA(), err)
-				return
+			for commit := range commitsChan {
+				commitDetail, _, err := r.client.Repositories.GetCommit(ctx, owner, repo, commit.GetSHA(), nil)
+				if err != nil {
+					log.Printf("error getting commit detail for %s: %v\n", commit.GetSHA(), err)
+					errorsChan <- &err
+					continue
+				}
+				stats := commitDetail.GetStats()
+				if stats == nil {
+					continue
+				}
+				userCommitAnalysisChan <- &model.CommitAnalysis{
+					Author:    *commit.Author.Login,
+					Additions: stats.GetAdditions(),
+					Deletions: stats.GetDeletions(),
+				}
 			}
-
-			stats := commitDetail.GetStats()
-			if stats == nil {
-				return
-			}
-
-			userChangesChan <- model.CommitAnalysis{
-				Author:    *commit.Author.Login,
-				Additions: stats.GetAdditions(),
-				Deletions: stats.GetDeletions(),
-			}
-		}(commit)
+		}()
 	}
-
 	go func() {
-		wg.Wait()
-		close(userChangesChan)
+		defer close(commitsChan)
+		for _, commit := range commits {
+			if commit.Author == nil || commit.Author.Login == nil {
+				continue
+			}
+			commitsChan <- commit
+		}
 	}()
 
-	userChanges := make(map[string]model.UserChanges)
-	for change := range userChangesChan {
-		current := userChanges[change.Author]
-		current.Additions += change.Additions
-		current.Deletions += change.Deletions
-		current.Total = current.Additions + current.Deletions
-		current.CommitCount = commitCounts[change.Author]
-		userChanges[change.Author] = current
-	}
+	wg.Wait()
+	close(userCommitAnalysisChan)
+	close(errorsChan)
 
-	return userChanges
+	commitCountsMap := r.getCommitCountsMap(commits)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for err := range errorsChan {
+			if err != nil {
+				errors = append(errors, *err)
+			}
+		}
+		for commitAnalysis := range userCommitAnalysisChan {
+			if commitAnalysis != nil {
+				current := userChangesMap[commitAnalysis.Author]
+				current.Additions += commitAnalysis.Additions
+				current.Deletions += commitAnalysis.Deletions
+				current.Total = current.Additions + current.Deletions
+				current.CommitCount = commitCountsMap[commitAnalysis.Author]
+				userChangesMap[commitAnalysis.Author] = current
+			}
+		}
+	}()
+	wg.Wait()
+
+	return userChangesMap, errors
+}
+
+func (r *githubRepository) getCommitCountsMap(commits []*github.RepositoryCommit) map[string]int {
+	commitCountsMap := make(map[string]int)
+	for _, commit := range commits {
+		if commit.Author != nil && commit.Author.Login != nil {
+			commitCountsMap[*commit.Author.Login] += 1
+		}
+	}
+	return commitCountsMap
 }

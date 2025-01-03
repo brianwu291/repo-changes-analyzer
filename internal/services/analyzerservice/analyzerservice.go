@@ -58,7 +58,7 @@ func (s *analyzerService) AnalyzeRepository(ctx context.Context, params Analysis
 	}
 
 	// process commits and update statistics
-	commitStats := s.repo.ProcessCommitsConcurrently(ctx, params.Owner, params.Repo, commits)
+	commitStats, _ := s.repo.ProcessCommitsConcurrently(ctx, params.Owner, params.Repo, commits)
 
 	// merge commit statistics
 	for username, stats := range commitStats {
