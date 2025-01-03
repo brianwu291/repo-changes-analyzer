@@ -44,6 +44,8 @@ func (s *analyzerService) AnalyzeRepository(ctx context.Context, params Analysis
 			userChanges[contributor.GetLogin()] = model.UserChanges{
 				Username:    contributor.GetLogin(),
 				AvatarURL:   contributor.GetAvatarURL(),
+				Deletions:   0,
+				Total:       0,
 				CommitCount: 0,
 			}
 		}
@@ -64,13 +66,15 @@ func (s *analyzerService) AnalyzeRepository(ctx context.Context, params Analysis
 			user.Additions = stats.Additions
 			user.Deletions = stats.Deletions
 			user.Total = stats.Total
+			user.CommitCount = stats.CommitCount
 			userChanges[username] = user
 		} else {
 			userChanges[username] = model.UserChanges{
-				Username:  username,
-				Additions: stats.Additions,
-				Deletions: stats.Deletions,
-				Total:     stats.Total,
+				Username:    username,
+				Additions:   stats.Additions,
+				Deletions:   stats.Deletions,
+				Total:       stats.Total,
+				CommitCount: stats.CommitCount,
 			}
 		}
 	}

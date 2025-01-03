@@ -79,7 +79,16 @@ func (r *githubRepository) ProcessCommitsConcurrently(ctx context.Context, owner
 	buffer := min(len(commits), workerSize*5)
 	userChangesChan := make(chan model.CommitAnalysis, buffer)
 
-	workerPool := make(chan struct{}, workerSize) // limit concurrent api requests
+	workerPool := make(chan struct{}, workerSize)
+
+	// init commit count map
+	commitCounts := make(map[string]int)
+	for _, commit := range commits {
+		if commit.Author != nil && commit.Author.Login != nil {
+			commitCounts[*commit.Author.Login] += 1
+		}
+	}
+
 	for _, commit := range commits {
 		if commit.Author == nil || commit.Author.Login == nil {
 			continue
@@ -88,36 +97,40 @@ func (r *githubRepository) ProcessCommitsConcurrently(ctx context.Context, owner
 		wg.Add(1)
 		go func(commit *github.RepositoryCommit) {
 			defer wg.Done()
-			workerPool <- struct{}{}        // acquire a worker
-			defer func() { <-workerPool }() // release a worker
+			workerPool <- struct{}{}
+			defer func() { <-workerPool }()
 
-			// get commit details
 			commitDetail, _, err := r.client.Repositories.GetCommit(ctx, owner, repo, commit.GetSHA(), nil)
 			if err != nil {
 				log.Printf("error getting commit detail for %s: %v", commit.GetSHA(), err)
 				return
 			}
 
+			stats := commitDetail.GetStats()
+			if stats == nil {
+				return
+			}
+
 			userChangesChan <- model.CommitAnalysis{
 				Author:    *commit.Author.Login,
-				Additions: commitDetail.GetStats().GetAdditions(),
-				Deletions: commitDetail.GetStats().GetDeletions(),
+				Additions: stats.GetAdditions(),
+				Deletions: stats.GetDeletions(),
 			}
 		}(commit)
 	}
 
-	// close channel when all goroutines are done
 	go func() {
 		wg.Wait()
 		close(userChangesChan)
 	}()
 
-	// aggregate results
 	userChanges := make(map[string]model.UserChanges)
 	for change := range userChangesChan {
 		current := userChanges[change.Author]
 		current.Additions += change.Additions
 		current.Deletions += change.Deletions
+		current.Total = current.Additions + current.Deletions
+		current.CommitCount = commitCounts[change.Author]
 		userChanges[change.Author] = current
 	}
 
