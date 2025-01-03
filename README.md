@@ -151,8 +151,7 @@ curl -X POST http://localhost:8080/api/analyze \
 }'
 ```
 
-<img width="994" alt="截圖 2025-01-03 15 41 39" src="https://github.com/user-attachments/assets/84b34094-0e82-4a3d-a26a-529f4e437a41" />
-
+<img width="949" alt="截圖 2025-01-03 16 07 13" src="https://github.com/user-attachments/assets/f811c6ed-77e8-4baf-a13e-56bad5ace0f0" />
 
 
 ## Features
