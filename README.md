@@ -104,7 +104,7 @@ Content-Type: application/json
 
 ```json
 {
-  "owner": "string", // gitHub repo owner
+  "owner": "string", // github repo owner
   "repo": "string", // repo name
   "start_date": "string", // start date in YYYY-MM-DD format
   "end_date": "string" // end date in YYYY-MM-DD format
@@ -118,10 +118,13 @@ Content-Type: application/json
   "repository": "owner/repo",
   "time_range": "start_date to end_date",
   "user_changes": {
-    "username": {
-      "additions": 100,
-      "deletions": 50,
-      "total": 150
+    "${username}": {
+      "username": "xxxxx",
+      "additions": 10,
+      "deletions": 2,
+      "total": 12,
+      "commit_count": 6,
+      "avatar_url": "https://avatars.githubusercontent.com/u/xxxxxxx"
     }
     // ... more users
   }
@@ -153,7 +156,6 @@ curl -X POST http://localhost:8080/api/analyze \
 ```
 
 <img width="949" alt="截圖 2025-01-03 16 07 13" src="https://github.com/user-attachments/assets/f811c6ed-77e8-4baf-a13e-56bad5ace0f0" />
-
 
 ## Features
 
