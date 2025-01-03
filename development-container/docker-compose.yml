@@ -1,0 +1,19 @@
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: development-container/Dockerfile
+    ports:
+      - "8088:8088"
+    env_file:
+      - ../.env
+    volumes:
+      - ..:/app
+      - go-modules:/go/pkg/mod
+      - tmp-air:/app/tmp
+    environment:
+      - PORT=8088
+    restart: unless-stopped
+volumes:
+  go-modules:
+  tmp-air: # volume for air's temporary files
